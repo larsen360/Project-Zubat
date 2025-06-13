@@ -1,5 +1,4 @@
-import requests
-from bs4 import BeautifulSoup
+pip install -r requirements.txt
 import time
 import os
 
