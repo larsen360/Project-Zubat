@@ -11,15 +11,31 @@ import os
 import random
 import subprocess
 import json
+import zipfile
+import requests
 
 pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"  # til Linux (Raspberry Pi)
 
 SCREENSHOT_DIR = 'screenshots'
 SEEN_FILE_PREFIX = 'seen_'  # hver shop får sin egen historikfil
 TARGETS_FILE = 'targets.json'
+CHROME_DRIVER_URL = "https://storage.googleapis.com/chrome-for-testing-public/137.0.7151.70/win64/chrome-win64.zip"
+CHROME_DRIVER_ZIP = "chrome-win64.zip"
+CHROME_DRIVER_DIR = "chrome-win64"
 
 if not os.path.exists(SCREENSHOT_DIR):
     os.makedirs(SCREENSHOT_DIR)
+
+def ensure_chrome_driver():
+    if not os.path.exists(CHROME_DRIVER_DIR):
+        print("⬇️ Downloader Chrome-driver...")
+        r = requests.get(CHROME_DRIVER_URL)
+        with open(CHROME_DRIVER_ZIP, 'wb') as f:
+            f.write(r.content)
+        with zipfile.ZipFile(CHROME_DRIVER_ZIP, 'r') as zip_ref:
+            zip_ref.extractall('.')
+        print("✅ Chrome-driver hentet og udpakket.")
+
 
 def load_targets():
     if not os.path.exists(TARGETS_FILE):
@@ -58,6 +74,7 @@ def get_html_with_selenium(url, scrolls=1, site_name="screenshot"):
     options = uc.ChromeOptions()
     options.add_argument('--disable-gpu')
     options.add_argument('--no-sandbox')
+    options.binary_location = os.path.abspath(f"{CHROME_DRIVER_DIR}/chrome.exe") if os.name == 'nt' else None
     driver = uc.Chrome(options=options)
 
     try:
@@ -126,6 +143,7 @@ def check_site(site):
         print(f"✅ {name}: Ingen nye matches.")
 
 if __name__ == '__main__':
+    ensure_chrome_driver()
     targets = load_targets()
     while True:
         for site in targets:
