@@ -1,6 +1,6 @@
 $requirementsFile = "requirements.txt"
 if (Test-Path $requirementsFile) {
-    python -m pip install -r $requirementsFile
+    py -m pip install -r $requirementsFile
 } else {
     py -m pip install requests
     py -m pip install beautifulsoup4
