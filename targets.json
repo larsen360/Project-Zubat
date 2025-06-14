@@ -1,0 +1,18 @@
+[
+  {
+    "name": "Card Store CPH",
+    "url": "https://cardstorecph.dk/shop/3-pokemon/",
+    "match_keywords": ["ETB", "Booster Box", "mini-tin", "sleeved", "bundle"]
+  },
+  {
+    "name": "Muggle Alley",
+    "url": "https://www.mugglealley.dk/shop/28-forudbestilling-pokemon/",
+    "match_keywords": ["ETB", "Booster Box", "mini-tin", "sleeved", "bundle"],
+    "scroll_downs": 3
+  },
+  {
+    "name": "Blazes.dk",
+    "url": "https://blazes.dk/product-category/pokemon/",
+    "match_keywords": ["ETB", "Booster Box", "mini-tin", "sleeved", "bundle"]
+  }
+]
