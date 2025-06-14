@@ -1,51 +1,134 @@
-import requests
+import undetected_chromedriver as uc
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.action_chains import ActionChains
 from bs4 import BeautifulSoup
+from PIL import Image
+import pytesseract
 import time
 import os
+import random
+import subprocess
+import json
 
-URL = 'https://www.pokemoncenter.com/category/trading-card-game/elite-trainer-boxes'
-HEADERS = {
-    'User-Agent': 'Mozilla/5.0'
-}
+pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"  # til Linux (Raspberry Pi)
 
-SEEN_FILE = 'seen_products.txt'
+SCREENSHOT_DIR = 'screenshots'
+SEEN_FILE_PREFIX = 'seen_'  # hver shop får sin egen historikfil
+TARGETS_FILE = 'targets.json'
 
-# Indlæs tidligere set produkter fra fil
-def load_seen_products():
-    if not os.path.exists(SEEN_FILE):
+if not os.path.exists(SCREENSHOT_DIR):
+    os.makedirs(SCREENSHOT_DIR)
+
+def load_targets():
+    if not os.path.exists(TARGETS_FILE):
+        raise FileNotFoundError(f"Konfigurationsfil '{TARGETS_FILE}' findes ikke.")
+    with open(TARGETS_FILE, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+def load_seen_products(site_name):
+    filename = f"{SEEN_FILE_PREFIX}{site_name.replace(' ', '_').lower()}.txt"
+    if not os.path.exists(filename):
         return set()
-    with open(SEEN_FILE, 'r', encoding='utf-8') as f:
+    with open(filename, 'r', encoding='utf-8') as f:
         return set(line.strip() for line in f if line.strip())
 
-# Gem nyt produkt til fil
-def save_seen_product(name):
-    with open(SEEN_FILE, 'a', encoding='utf-8') as f:
-        f.write(name + '\n')
+def save_seen_product(site_name, product):
+    filename = f"{SEEN_FILE_PREFIX}{site_name.replace(' ', '_').lower()}.txt"
+    with open(filename, 'a', encoding='utf-8') as f:
+        f.write(product + '\n')
 
-# Start med at læse den tidligere historik
-seen_products = load_seen_products()
+def try_accept_cookies(driver):
+    try:
+        time.sleep(1.5)
+        accept_buttons = driver.find_elements(By.XPATH, "//*[contains(text(), 'Accepter alle') or contains(text(), 'Accepter') or contains(text(), 'Accept all') or contains(text(), 'Godkend alle') or contains(text(), 'Tillad alle') or contains(text(), 'OK')]")
+        for button in accept_buttons:
+            try:
+                driver.execute_script("arguments[0].click();", button)
+                print("🟢 Accepterede cookies.")
+                time.sleep(1.5)
+                break
+            except Exception:
+                continue
+    except Exception:
+        pass
 
-def check_for_new_etb():
-    response = requests.get(URL, headers=HEADERS)
-    soup = BeautifulSoup(response.text, 'html.parser')
+def get_html_with_selenium(url, scrolls=1, site_name="screenshot"):
+    options = uc.ChromeOptions()
+    options.add_argument('--disable-gpu')
+    options.add_argument('--no-sandbox')
+    driver = uc.Chrome(options=options)
 
-    products = soup.find_all('a', class_='product-card-title')
+    try:
+        driver.get(url)
+        time.sleep(random.uniform(2.5, 4.5))
 
-    found_new = False
-    for product in products:
-        name = product.get_text().strip()
-        if 'Elite Trainer Box' in name and 'Pokemon Center' in name:
-            if name not in seen_products:
-                print(f"NY: {name}")
-                print(f"Link: https://www.pokemoncenter.com{product['href']}")
-                seen_products.add(name)
-                save_seen_product(name)
-                found_new = True
+        try_accept_cookies(driver)
 
-    if not found_new:
-        print("Ingen nye ETB'er fundet.")
+        for _ in range(scrolls):
+            driver.execute_script("window.scrollBy(0, window.innerHeight * 0.9);")
+            time.sleep(random.uniform(0.4, 0.8))
+
+        driver.execute_script("window.scrollTo(0, 0);")
+        time.sleep(0.5)
+
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        screenshot_name = f"{SCREENSHOT_DIR}/{site_name.replace(' ', '_').lower()}_{timestamp}.png"
+        driver.save_screenshot(screenshot_name)
+        print(f"📸 Screenshot gemt: {screenshot_name}")
+        html = driver.page_source
+    except Exception as e:
+        print(f"⚠️ Fejl ved hentning af {url}: {e}")
+        html = ""
+    finally:
+        driver.quit()
+
+    return html, screenshot_name
+
+def notify(site, match):
+    print(f"🔔 {site}: Nyt match fundet – '{match}'")
+
+def check_site(site):
+    name = site["name"]
+    url = site["url"]
+    keywords = site["match_keywords"]
+    scrolls = site.get("scroll_downs", 1)
+
+    seen = load_seen_products(name)
+    html, screenshot_path = get_html_with_selenium(url, scrolls, name)
+
+    if not html:
+        # OCR fallback
+        try:
+            image = Image.open(screenshot_path)
+            text = pytesseract.image_to_string(image)
+            for keyword in keywords:
+                if keyword.lower() in text.lower():
+                    if keyword not in seen:
+                        notify(name, keyword)
+                        save_seen_product(name, keyword)
+        except Exception as e:
+            print(f"🧨 OCR-fejl for {name}: {e}")
+        return
+
+    # HTML analyse
+    soup = BeautifulSoup(html, 'html.parser')
+    found_any = False
+    for keyword in keywords:
+        if keyword.lower() in soup.get_text().lower():
+            if keyword not in seen:
+                notify(name, keyword)
+                save_seen_product(name, keyword)
+                found_any = True
+
+    if not found_any:
+        print(f"✅ {name}: Ingen nye matches.")
 
 if __name__ == '__main__':
+    targets = load_targets()
     while True:
-        check_for_new_etb()
+        for site in targets:
+            print(f"\n🌐 Tjekker: {site['name']}")
+            check_site(site)
         time.sleep(60 * 5)  # Tjek hvert 5. minut
